@@ -1,0 +1,136 @@
+
+{ config, pkgs, ... }:
+
+{
+  imports =
+    [ 
+      ./hardware-configuration.nix
+    ];
+
+  boot.loader.grub.enable = true;
+  boot.loader.grub.device = "/dev/vda";
+  boot.loader.grub.useOSProber = true;
+
+  boot.kernelPackages = pkgs.linuxPackages_latest;
+
+  networking.hostName = "cibersecurity"; 
+
+  networking.networkmanager.enable = true;
+
+  time.timeZone = "Europe/Lisbon";
+
+  
+  i18n.defaultLocale = "en_US.UTF-8";
+
+  i18n.extraLocaleSettings = {
+    LC_ADDRESS = "pt_PT.UTF-8";
+    LC_IDENTIFICATION = "pt_PT.UTF-8";
+    LC_MEASUREMENT = "pt_PT.UTF-8";
+    LC_MONETARY = "pt_PT.UTF-8";
+    LC_NAME = "pt_PT.UTF-8";
+    LC_NUMERIC = "pt_PT.UTF-8";
+    LC_PAPER = "pt_PT.UTF-8";
+    LC_TELEPHONE = "pt_PT.UTF-8";
+    LC_TIME = "pt_PT.UTF-8";
+  };
+
+  
+  services.xserver.enable = true;
+  #enable ssh
+  services.openssh = {
+  enable = true;
+  settings = {
+  PasswordAuthentication = true;
+  PermitRootLogin = "yes";
+  LogLevel = "VERBOSE"; # Importante para deteção
+ };
+ };
+#fail2ban basic config
+services.fail2ban = {
+enable = true;
+# IPs que nunca serão banidos
+ignoreIP = [
+  "127.0.0.1/8"
+  "192.168.1.0/24"  # Ajustar conforme sua rede local
+];
+# Tempo de banimento padrão: 1 hora
+bantime = "1h";
+jails = {
+  sshd.settings = {
+      enabled = true;
+      findtime = 600;    # em segundos
+      bantime  = 600;    # em segundos (ou deixa só o global)
+      maxretry = 3;
+    };
+  };
+
+};
+
+
+  # Enable the Pantheon Desktop Environment.
+  services.xserver.displayManager.lightdm.enable = true;
+  services.desktopManager.pantheon.enable = true;
+  services.qemuGuest.enable = true;
+  services.spice-vdagentd.enable = true;
+  # Configure keymap in X11
+  services.xserver.xkb = {
+    layout = "pt";
+    variant = "";
+  };
+
+  # Configure console keymap
+  console.keyMap = "pt-latin1";
+
+  # Enable CUPS to print documents.
+  services.printing.enable = true;
+
+  # Enable sound with pipewire.
+  services.pulseaudio.enable = false;
+  security.rtkit.enable = true;
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    alsa.support32Bit = true;
+    pulse.enable = true;
+  
+
+
+  };
+
+
+
+ 
+  users.users.nixoffsec = {
+    isNormalUser = true;
+    description = "nixoffsec";
+    extraGroups = [ "networkmanager" "docker" "wheel" ];
+    packages = with pkgs; [
+    
+    ];
+  };
+
+
+  programs.firefox.enable = true;
+
+
+  nixpkgs.config.allowUnfree = true;
+
+  environment.systemPackages = with pkgs; [
+    vim wget spice-vdagent qemu tor-browser snort tcpdump wireshark nmap
+  ];
+virtualisation.docker = {
+  enable = true;
+
+  daemon.settings = {
+    experimental = true;
+    default-address-pools = [
+      { base = "172.30.0.0/16"; size = 24; }
+    ];
+    log-driver = "journald";
+    storage-driver = "overlay2";
+  };
+};
+  
+
+
+}
