@@ -40,7 +40,7 @@
   };
 
   # ==========================================
-  # CONFIGURAÇÃO DE SEGURANÇA (FAIL2BAN + SNORT)
+  # CONFIGURAÇÃO DE SEGURANÇA (FAIL2BAN + SNORT 3)
   # ==========================================
   
   services.fail2ban = {
@@ -61,15 +61,28 @@
   };
 
   environment.etc = {
-    # 1. Configurar as variáveis HOME_NET e EXTERNAL_NET
-    # (No Snort para o NixOS, passamos isto pelo ficheiro de configuração)
-    "snort/snort.conf".text = ''
-      # Definir a rede interna (ajusta se a rede das tuas VMs for diferente, ex: 192.168.122.0/24)
-      ipvar HOME_NET 192.168.1.0/24
-      ipvar EXTERNAL_NET !$HOME_NET
+    # 1. Configurar as variáveis e o logger no Snort 3 (snort.lua)
+    "snort/snort.lua".text = ''
+      -- Definir as Redes
+      HOME_NET = '192.168.122.0/24'
+      EXTERNAL_NET = '!$HOME_NET'
       
-      # Incluir as regras personalizadas
-      include /etc/snort/rules/my.rules
+      -- Expor variáveis para as regras e indicar onde estão as regras
+      ips = {
+        variables = {
+          nets = {
+            HOME_NET = HOME_NET,
+            EXTERNAL_NET = EXTERNAL_NET,
+          }
+        },
+        include = '/etc/snort/rules/my.rules'
+      }
+
+            -- Ativar o logger para enviar alertas de formato rápido
+      alert_fast = {
+        file = false
+      }
+
     '';
 
     # 2. Criar as regras solicitadas no laboratório
@@ -81,7 +94,7 @@
       alert tcp $EXTERNAL_NET any -> $HOME_NET 23 (msg:"tentativa exterior TELNET !"; flags:S; sid:1000002; rev:1;)
 
       # Regra 3: Alerta pesquisa pela palavra terrorismo (NO CASE SENSITIVE) vinda da rede interna para a externa
-      alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"Procuram conteudo terrorista !"; content:"terrorismo"; nocase; sid:1000003; rev:1;)
+      alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"Procuram conteudo terrorista !"; content:"terrorismo",nocase; sid:1000003; rev:1;)
 
       # Regra 4: Alerta de PING (ICMP) vindo da rede externa
       alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"Estamos a ser pingados !"; itype:8; sid:1000004; rev:1;)
@@ -94,8 +107,11 @@
     after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
-      ExecStart = "${pkgs.snort}/bin/snort -q -c /etc/snort/snort.conf -i enp1s0 -A console"; # Garante que -i tem a tua interface real (ex: enp1s0 ou eth0)
+      # Uso do snort.lua, com log formatado para o journal (-A alert_syslog)
+      ExecStart = "${pkgs.snort}/bin/snort -q -c /etc/snort/snort.lua -i enp1s0 -A alert_fast";  
       Restart = "always";
+      AmbientCapabilities = "CAP_NET_RAW CAP_NET_ADMIN";
+      CapabilityBoundingSet = "CAP_NET_RAW CAP_NET_ADMIN";
     };
   };
 
@@ -138,7 +154,7 @@
   nixpkgs.config.allowUnfree = true;
 
   environment.systemPackages = with pkgs; [
-    vim wget spice-vdagent qemu tor-browser snort tcpdump wireshark nmap
+   vim wget spice-vdagent qemu tor-browser snort tcpdump wireshark nmap
   ];
 
   virtualisation.docker = {
