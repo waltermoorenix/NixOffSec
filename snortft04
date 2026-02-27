@@ -1,0 +1,157 @@
+{ config, pkgs, ... }:
+
+{
+  imports = [ ./hardware-configuration.nix ];
+
+  boot.loader.grub.enable = true;
+  boot.loader.grub.device = "/dev/vda";
+  boot.loader.grub.useOSProber = true;
+
+  boot.kernelPackages = pkgs.linuxPackages_latest;
+
+  networking.hostName = "cibersecurity"; 
+  networking.networkmanager.enable = true;
+
+  time.timeZone = "Europe/Lisbon";
+
+  i18n.defaultLocale = "en_US.UTF-8";
+  i18n.extraLocaleSettings = {
+    LC_ADDRESS = "pt_PT.UTF-8";
+    LC_IDENTIFICATION = "pt_PT.UTF-8";
+    LC_MEASUREMENT = "pt_PT.UTF-8";
+    LC_MONETARY = "pt_PT.UTF-8";
+    LC_NAME = "pt_PT.UTF-8";
+    LC_NUMERIC = "pt_PT.UTF-8";
+    LC_PAPER = "pt_PT.UTF-8";
+    LC_TELEPHONE = "pt_PT.UTF-8";
+    LC_TIME = "pt_PT.UTF-8";
+  };
+
+  services.xserver.enable = true;
+
+  # Enable SSH
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = true;
+      PermitRootLogin = "yes";
+      LogLevel = "VERBOSE"; 
+    };
+  };
+
+  # ==========================================
+  # CONFIGURAÇÃO DE SEGURANÇA (FAIL2BAN + SNORT)
+  # ==========================================
+  
+  services.fail2ban = {
+    enable = true;
+    ignoreIP = [
+      "127.0.0.1/8"
+      # Removida a rede local para que o Kali Linux atacante possa ser banido no teste
+    ];
+    bantime = "1h";
+    jails = {
+      sshd.settings = {
+        enabled = true;
+        findtime = 600;
+        bantime  = 600;
+        maxretry = 3;
+      };
+    };
+  };
+
+  environment.etc = {
+    # 1. Configurar as variáveis HOME_NET e EXTERNAL_NET
+    # (No Snort para o NixOS, passamos isto pelo ficheiro de configuração)
+    "snort/snort.conf".text = ''
+      # Definir a rede interna (ajusta se a rede das tuas VMs for diferente, ex: 192.168.122.0/24)
+      ipvar HOME_NET 192.168.1.0/24
+      ipvar EXTERNAL_NET !$HOME_NET
+      
+      # Incluir as regras personalizadas
+      include /etc/snort/rules/my.rules
+    '';
+
+    # 2. Criar as regras solicitadas no laboratório
+    "snort/rules/my.rules".text = ''
+      # Regra 1: Alerta tentativa FTP externa
+      alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"tentativa exterior FTP !"; flags:S; sid:1000001; rev:1;)
+
+      # Regra 2: Alerta tentativa TELNET externa
+      alert tcp $EXTERNAL_NET any -> $HOME_NET 23 (msg:"tentativa exterior TELNET !"; flags:S; sid:1000002; rev:1;)
+
+      # Regra 3: Alerta pesquisa pela palavra terrorismo (NO CASE SENSITIVE) vinda da rede interna para a externa
+      alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"Procuram conteudo terrorista !"; content:"terrorismo"; nocase; sid:1000003; rev:1;)
+
+      # Regra 4: Alerta de PING (ICMP) vindo da rede externa
+      alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"Estamos a ser pingados !"; itype:8; sid:1000004; rev:1;)
+    '';
+  };
+
+  # Criar serviço systemd para o Snort arrancar automaticamente
+  systemd.services.snort = {
+    description = "Snort IDS";
+    after = [ "network.target" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      ExecStart = "${pkgs.snort}/bin/snort -q -c /etc/snort/snort.conf -i enp1s0 -A console"; # Garante que -i tem a tua interface real (ex: enp1s0 ou eth0)
+      Restart = "always";
+    };
+  };
+
+  # ==========================================
+  # FIM CONFIGURAÇÃO DE SEGURANÇA
+  # ==========================================
+
+  # Enable the Pantheon Desktop Environment.
+  services.xserver.displayManager.lightdm.enable = true;
+  services.desktopManager.pantheon.enable = true;
+  services.qemuGuest.enable = true;
+  services.spice-vdagentd.enable = true;
+  
+  services.xserver.xkb = {
+    layout = "pt";
+    variant = "";
+  };
+
+  console.keyMap = "pt-latin1";
+
+  services.printing.enable = true;
+
+  services.pulseaudio.enable = false;
+  security.rtkit.enable = true;
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    alsa.support32Bit = true;
+    pulse.enable = true;
+  };
+
+  users.users.nixoffsec = {
+    isNormalUser = true;
+    description = "nixoffsec";
+    extraGroups = [ "networkmanager" "docker" "wheel" ];
+    packages = with pkgs; [ ];
+  };
+
+  programs.firefox.enable = true;
+  nixpkgs.config.allowUnfree = true;
+
+  environment.systemPackages = with pkgs; [
+    vim wget spice-vdagent qemu tor-browser snort tcpdump wireshark nmap
+  ];
+
+  virtualisation.docker = {
+    enable = true;
+    daemon.settings = {
+      experimental = true;
+      default-address-pools = [
+        { base = "172.30.0.0/16"; size = 24; }
+      ];
+      log-driver = "journald";
+      storage-driver = "overlay2";
+    };
+  };
+
+  system.stateVersion = "25.11";
+}
